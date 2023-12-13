@@ -1,0 +1,149 @@
+
+#include <IRremote.h>
+#include <EEPROM.h>
+#define RECV_PIN 19
+#define EN_PIN 18  //电机使能引脚
+#define DIR_PIN 16  //电机正反
+#define STEP_PIN 17  //电机脉冲
+IRrecv irrecv(RECV_PIN);
+decode_results results;
+int runk_count = 0;
+int max_run_count = 4;
+//float speed_x = EEPROM.read(0) ? EEPROM.read(0) / 10 : 1; //速度系数越大越慢
+float speed_x =1;
+void setup() {
+
+  Serial.begin(9600);
+  Serial.println("start,速度系数：" + String(speed_x));
+  pinMode(EN_PIN, OUTPUT);
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(DIR_PIN, OUTPUT);
+  //    digitalWrite(EN_PIN,0);
+  irrecv.enableIRIn();
+}
+bool is_run = false;//运行状态
+bool dir = false;//旋转方向
+void loop() {
+
+  //机顶盒遥控器上下左右确定
+  //          4DB253AC
+  // 4DB29966 4DB2738C 4DB2837C
+  //          4DB24BB4
+  //              1303532460
+  //  1303550310 1303540620 1303544700
+  //            1303530420
+
+
+
+  if (irrecv.decode(&results)) {
+    Serial.println(results.value);
+    switch (results.value) {
+
+      case 1303532460: blin(); changeSpeed(-1); break; //加速
+      //            case 1303550310: blin();EEPROM.write(0,0); break; //旋转方向
+      case 1303540620: blin(); on_off(); break; //开关
+      //      case 1303544700: blin();changeWay(0); break;
+      case 1303530420: blin(); changeSpeed(+1); break; //减速
+
+    }
+    irrecv.resume();
+  }
+ 
+  delay(300);
+
+}
+
+
+//加速减速
+void changeSpeed(float num) {
+//  if ((speed_x + num) < 10 && (speed_x + num) > 1) {
+    speed_x += num;
+    Serial.println(speed_x);
+    EEPROM.write(0, speed_x * 10);
+//  }
+}
+
+//收到信号闪灯
+void blin() {
+  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  delay(100);                       // wait for a second
+  digitalWrite(LED_BUILTIN, LOW);
+  delay(100);
+  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+  delay(100);
+  digitalWrite(LED_BUILTIN, LOW);
+}
+
+//开关状态使能切换
+void on_off() {
+  if (is_run) {
+    is_run = false;
+    digitalWrite(EN_PIN, 1);
+  } else {
+    is_run = true;
+    digitalWrite(EN_PIN, 0);
+    breore_run();
+    run();
+
+  }
+}
+
+//启动前慢慢摆动启动
+void breore_run() {
+  //10 20 30 40 50 60 70 80 90 100
+  Serial.println("breore_run");
+  for (int x = 1; x <= 20; x++) {
+    for (int i = 0; i < x * 10; i++) {
+      digitalWrite(STEP_PIN, 1);
+      delayMicroseconds(1000);
+      digitalWrite(STEP_PIN, 0);
+      delayMicroseconds(1000);
+    }
+    //  换向
+    changeWay(x % 2) ;
+  }
+}
+
+
+//停止后慢慢摇停
+void after_stop() {
+  //10 20 30 40 50 60 70 80 90 100
+  for (int x = 20; x >= 1; x--) {
+    for (int i = 0; i < x * 10; i++) {
+      digitalWrite(STEP_PIN, 1);
+      delayMicroseconds(1000);
+      digitalWrite(STEP_PIN, 0);
+      delayMicroseconds(1000);
+    }
+    //  换向
+    changeWay(x % 2) ;
+  }
+}
+
+//开始摇
+void run() {
+  if (is_run == true) {
+    for (int i = 0; i < 200; i++) {
+      digitalWrite(STEP_PIN, 1);
+      delayMicroseconds(1000 * speed_x);
+      digitalWrite(STEP_PIN, 0);
+      delayMicroseconds(1000 * speed_x);
+    }
+    runk_count++;
+    Serial.println(runk_count);
+    if (runk_count < max_run_count) {
+      run();
+    } else {
+      is_run = false;
+      after_stop();
+      runk_count = 0;
+      digitalWrite(EN_PIN, 1);
+    }
+  }
+}
+
+//方向切换
+void changeWay(int pin) {
+  digitalWrite(DIR_PIN, pin);
+  dir = pin == 1;
+}
